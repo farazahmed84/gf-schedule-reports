@@ -2,12 +2,34 @@
 /*
 Plugin Name: Gravity Forms Scheduled Reports
 Description: Schedule and email Gravity Forms entry reports (CSV) automatically.
-Version: 0.1
+Version: 0.2
 Author: Faraz Ahmed
 Author URI: https://farazthewebguy.com/
 */
 
 if (!defined('ABSPATH')) exit;
+
+// --- Register all custom intervals globally for WP-Cron ---
+add_filter('cron_schedules', function($schedules) {
+    $schedules_query = get_posts([
+        'post_type'   => 'gfsr_schedule',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'fields'      => 'ids',
+    ]);
+    foreach ($schedules_query as $schedule_id) {
+        $type = get_post_meta($schedule_id, 'gfsr_schedule_type', true);
+        $repeat = max(1, intval(get_post_meta($schedule_id, 'gfsr_repeat_every', true)));
+        $interval = ($type === 'daily') ? DAY_IN_SECONDS * $repeat :
+                    (($type === 'weekly') ? WEEK_IN_SECONDS * $repeat :
+                    (30 * DAY_IN_SECONDS * $repeat));
+        $schedules['gfsr_custom_' . $schedule_id] = [
+            'interval' => $interval,
+            'display'  => 'GFSR Custom Interval',
+        ];
+    }
+    return $schedules;
+});
 
 // --- Custom Post Type for Schedules ---
 add_action('init', function() {
@@ -447,38 +469,10 @@ function gfsr_schedule_event($post_id) {
                 (($type === 'weekly') ? WEEK_IN_SECONDS * $repeat :
                 (30 * DAY_IN_SECONDS * $repeat));
     wp_schedule_event($run_time, 'gfsr_custom_' . $post_id, 'gfsr_run_schedule', array($post_id));
-    add_filter('cron_schedules', function($schedules) use ($interval, $post_id) {
-        $schedules['gfsr_custom_' . $post_id] = array('interval' => $interval, 'display' => 'GFSR Custom Interval');
-        return $schedules;
-    });
 }
 add_action('before_delete_post', function($post_id) {
     if (get_post_type($post_id) === 'gfsr_schedule') {
         wp_clear_scheduled_hook('gfsr_run_schedule', array($post_id));
-    }
-});
-
-// Register all custom intervals on admin page load
-add_action('admin_init', function() {
-    if (isset($_GET['post_type']) && $_GET['post_type'] === 'gfsr_schedule') {
-        $schedules = get_posts(array(
-            'post_type' => 'gfsr_schedule',
-            'post_status' => 'publish',
-            'numberposts' => -1
-        ));
-        
-        foreach ($schedules as $schedule) {
-            $type = get_post_meta($schedule->ID, 'gfsr_schedule_type', true);
-            $repeat = max(1, intval(get_post_meta($schedule->ID, 'gfsr_repeat_every', true)));
-            $interval = ($type === 'daily') ? DAY_IN_SECONDS * $repeat :
-                        (($type === 'weekly') ? WEEK_IN_SECONDS * $repeat :
-                        (30 * DAY_IN_SECONDS * $repeat));
-            
-            add_filter('cron_schedules', function($schedules) use ($interval, $schedule) {
-                $schedules['gfsr_custom_' . $schedule->ID] = array('interval' => $interval, 'display' => 'GFSR Custom Interval');
-                return $schedules;
-            });
-        }
     }
 });
 
